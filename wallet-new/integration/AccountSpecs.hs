@@ -11,7 +11,10 @@ import           Control.Concurrent (threadDelay)
 import           Control.Lens
 import           Pos.Core.Common (mkCoin)
 import           Test.Hspec
-import           Test.QuickCheck (arbitrary, generate, shuffle)
+import           Test.Hspec.QuickCheck (prop)
+import           Test.QuickCheck (arbitrary, shuffle, withMaxSuccess)
+import           Test.QuickCheck.Monadic (PropertyM, monadicIO, pick, run)
+
 import           Util
 
 import qualified Pos.Core as Core
@@ -20,18 +23,22 @@ import qualified Prelude
 
 accountSpecs :: WalletRef -> WalletClient IO -> Spec
 accountSpecs wRef wc =
+
     describe "Accounts" $ do
-        it "can retrieve only an account's balance" $ do
+
+        prop "can retrieve only an account's balance" $ withMaxSuccess 10 $
+            monadicIO $ do
             let zero = V1 (mkCoin 0)
-            (Wallet{..}, Account{..}) <- randomAccount wc
-            eresp <- getAccountBalance wc walId accIndex
+            (Wallet{..}, Account{..}) <- run $ randomAccount wc
+            eresp <- run $ getAccountBalance wc walId accIndex
 
-            partialAccount <- wrData <$> eresp `shouldPrism` _Right
-            partialAccount `shouldBe` AccountBalance zero
+            partialAccount <- run $ wrData <$> eresp `shouldPrism` _Right
+            liftIO $ partialAccount `shouldBe` AccountBalance zero
 
-        it "can retrieve only an account's addresses" $ do
-            pair@(Wallet{..}, Account{..}) <- randomAccount wc
-            addresses <- createAddresses wc 10 pair
+        prop "can retrieve only an account's addresses" $ withMaxSuccess 10 $
+            monadicIO $ do
+            pair@(Wallet{..}, Account{..}) <- run $ randomAccount wc
+            addresses <- run $ createAddresses wc 10 pair
             let addr = Prelude.head addresses
             let tests =
                     [ PaginationTest (Just 1) (Just 5) NoFilters NoSorts
@@ -43,29 +50,32 @@ accountSpecs wRef wc =
                     ]
 
             forM_ tests $ \PaginationTest{..} -> do
-                eresp <- getAccountAddresses wc walId accIndex page perPage filters
-                expectations . acaAddresses . wrData =<< eresp `shouldPrism` _Right
-        it "can retrieve initial and updated balances of several account from getAccountBalances that are equivalent to what is obtained from getAccount" $ do
-            genesis <- genesisWallet wc
-            (fromAcct, _) <- firstAccountAndId wc genesis
+                eresp <- run $ getAccountAddresses wc walId accIndex page perPage filters
+                liftIO $ expectations . acaAddresses . wrData =<< eresp `shouldPrism` _Right
 
-            wallet <- sampleWallet wRef wc
+        prop ("can retrieve initial and updated balances of several accounts from getAccountBalances"
+              <> "that are equivalent to what is obtained from getAccounts") $ withMaxSuccess 1 $
+            monadicIO $ do
+            genesis <- run $ genesisWallet wc
+            (fromAcct, _) <- run $ firstAccountAndId wc genesis
+
+            wallet <- run $ sampleWallet wRef wc
             -- We create 4 accounts, plus one is created automatically
             -- by the 'sampleWallet', for a total of 5.
             randomNewAccount <- forM [1..4] $ \(_i :: Int) ->
-                generate arbitrary :: IO NewAccount
+                pick arbitrary :: PropertyM IO NewAccount
             forM_ randomNewAccount $ \(rAcc :: NewAccount) ->
-                postAccount wc (walId wallet) rAcc
+                run $ postAccount wc (walId wallet) rAcc
 
-            accResp' <- getAccounts wc (walId wallet)
-            accs <- wrData <$> accResp' `shouldPrism` _Right
+            accResp' <- run $ getAccounts wc (walId wallet)
+            accs <- run $ wrData <$> accResp' `shouldPrism` _Right
 
             balancesPartialResp' <- forM (map accIndex accs) $ \(accIndex :: AccountIndex) ->
-                getAccountBalance wc (walId wallet) accIndex
+                run $ getAccountBalance wc (walId wallet) accIndex
 
-            balancesPartial <- mapM (\resp -> wrData <$> resp `shouldPrism` _Right) balancesPartialResp'
+            balancesPartial <- run $ mapM (\resp -> wrData <$> resp `shouldPrism` _Right) balancesPartialResp'
 
-            map (AccountBalance . accAmount) accs `shouldBe` balancesPartial
+            liftIO $ map (AccountBalance . accAmount) accs `shouldBe` balancesPartial
 
             -- Now transfering money to 5 accounts from genesis wallet and checking balances once again
             let payment amount toAddr = Payment
@@ -80,23 +90,23 @@ accountSpecs wRef wc =
                     , pmtGroupingPolicy = Nothing
                     , pmtSpendingPassword = Nothing
                     }
-            amounts <- generate $ shuffle [1..5]
+            amounts <- pick $ shuffle [1..5]
             let addrAndAmount = zip (map (\(addr : _) -> addr) $ map accAddresses accs) amounts
             forM_  addrAndAmount $ \(addr, amount) ->
-                postTransaction wc (payment amount addr)
+                run $ postTransaction wc (payment amount addr)
 
-            threadDelay 120000000
+            liftIO $ threadDelay 90000000
 
-            accUpdatedResp' <- getAccounts wc (walId wallet)
-            accsUpdated <- wrData <$> accUpdatedResp' `shouldPrism` _Right
+            accUpdatedResp' <- run $ getAccounts wc (walId wallet)
+            accsUpdated <- run $ wrData <$> accUpdatedResp' `shouldPrism` _Right
 
-            balancesPartialUpdatedResp' <- forM (map accIndex accsUpdated) $
+            balancesPartialUpdatedResp' <- run $ forM (map accIndex accsUpdated) $
                 \(accIndex :: AccountIndex) -> getAccountBalance wc (walId wallet) accIndex
 
             balancesPartialUpdated <-
-                mapM (\resp -> wrData <$> resp `shouldPrism` _Right) balancesPartialUpdatedResp'
+                run $ mapM (\resp -> wrData <$> resp `shouldPrism` _Right) balancesPartialUpdatedResp'
 
-            map (AccountBalance . accAmount) accsUpdated `shouldBe` balancesPartialUpdated
+            liftIO $ map (AccountBalance . accAmount) accsUpdated `shouldBe` balancesPartialUpdated
 
   where
     filterByAddress :: WalletAddress -> FilterOperations '[V1 Address] WalletAddress
