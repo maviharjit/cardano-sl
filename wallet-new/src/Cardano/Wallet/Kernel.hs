@@ -142,7 +142,7 @@ initPassiveWallet logMessage keystore handles node = do
         preparePassiveWallet :: IO PassiveWallet
         preparePassiveWallet = do
             submission <- newMVar (newWalletSubmission rho)
-            restore    <- newMVar Map.empty
+            restore    <- newRestorationTasks
             return PassiveWallet {
                   _walletLogMessage      = logMessage
                 , _walletKeystore        = keystore

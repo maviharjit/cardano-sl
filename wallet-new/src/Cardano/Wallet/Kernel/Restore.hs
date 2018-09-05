@@ -8,7 +8,6 @@ module Cardano.Wallet.Kernel.Restore
 import           Universum
 
 import           Control.Concurrent.Async (async, cancel)
-import           Control.Concurrent.MVar (modifyMVar_)
 import           Data.Acid (update)
 import qualified Data.Map.Merge.Strict as M
 import qualified Data.Map.Strict as M
@@ -33,9 +32,10 @@ import           Cardano.Wallet.Kernel.DB.TxMeta.Types
 import           Cardano.Wallet.Kernel.Decrypt (WalletDecrCredentialsKey (..),
                      decryptAddress, keyToWalletDecrCredentials)
 import           Cardano.Wallet.Kernel.Internal (WalletRestorationInfo (..),
-                     WalletRestorationProgress (..), cancelRestoration,
-                     walletMeta, walletNode, walletRestorationTask, wallets,
-                     wriCancel, wrpCurrentSlot, wrpTargetSlot, wrpThroughput)
+                     WalletRestorationProgress (..), addRestoration,
+                     removeRestoration, updateRestoration, walletMeta,
+                     walletNode, wallets, wriCancel, wrpCurrentSlot,
+                     wrpTargetSlot, wrpThroughput)
 import           Cardano.Wallet.Kernel.NodeStateAdaptor (Lock, LockContext (..),
                      NodeConstraints, WithNodeState, filterUtxo,
                      getSecurityParameter, getSlotCount, mostRecentMainBlock,
@@ -137,11 +137,8 @@ beginRestoration pw wId prefilter root (tgtTip, tgtSlot) restart = do
                       , _wriCancel      = return ()
                       , _wriRestart     = restart
                       }
-    modifyMVar_ (pw ^. walletRestorationTask) $ \wri -> do
-        -- Cancel any other restorations currently running for this wallet.
-        whenJust (M.lookup wId wri) cancelRestoration
-        -- Register this restoration task with the wallet.
-        return (M.insert wId restoreInfo wri)
+
+    addRestoration pw wId restoreInfo
 
     -- Begin restoring the wallet history in the background.
     restoreTask <- async $
@@ -158,8 +155,7 @@ beginRestoration pw wId prefilter root (tgtTip, tgtSlot) restart = do
               (pw ^. walletLogMessage) Error ("Exception during restoration: " <> show e)
 
     -- Set up the cancellation action
-    modifyMVar_ (pw ^. walletRestorationTask)
-                (pure . M.adjust (wriCancel .~ cancel restoreTask) wId)
+    updateRestoration pw wId (wriCancel .~ cancel restoreTask)
 
 -- | Information we need to start the restoration process
 data WalletInitInfo =
@@ -293,7 +289,7 @@ restoreWalletHistoryAsync wallet rootId prefilter progress (tgtHash, tgtSlot) =
     finish = do
         k <- getSecurityParameter (wallet ^. walletNode)
         update (wallet ^. wallets) $ RestorationComplete k rootId
-        modifyMVar_ (wallet ^. walletRestorationTask) (pure . M.delete wId)
+        removeRestoration wallet wId
 
     -- Step forward to the successor of the given block.
     nextHistoricalHash :: HeaderHash -> IO (Maybe HeaderHash)
