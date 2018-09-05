@@ -41,11 +41,10 @@ import           System.Directory (createDirectoryIfMissing, doesDirectoryExist,
                      removeDirectoryRecursive)
 import           System.FilePath ((</>))
 
-import           Pos.Binary.Class (Bi)
-import           Pos.Core.Configuration (HasCoreConfiguration)
+import           Pos.Binary.Class (Bi, serialize')
 import           Pos.DB.BatchOp (rocksWriteBatch)
 import           Pos.DB.Class (DBIteratorClass (..), DBTag (..), IterType)
-import           Pos.DB.Functions (dbSerializeValue, processIterEntry)
+import           Pos.DB.Functions (processIterEntry)
 import           Pos.DB.Rocks.Types (DB (..), MonadRealDB, NodeDBs (..),
                      getDBByTag)
 import qualified Pos.Util.Concurrent.RWLock as RWL
@@ -143,8 +142,8 @@ rocksDelete k DB {..} = Rocks.delete rocksDB rocksWriteOpts k
 -- garbage, should be abstracted and hidden
 
 -- | Write serializable value to RocksDb for given key.
-rocksPutBi :: (HasCoreConfiguration, Bi v, MonadIO m) => ByteString -> v -> DB -> m ()
-rocksPutBi k v = rocksPutBytes k (dbSerializeValue v)
+rocksPutBi :: (Bi v, MonadIO m) => ByteString -> v -> DB -> m ()
+rocksPutBi k v = rocksPutBytes k (serialize' v)
 
 ----------------------------------------------------------------------------
 -- Snapshot
@@ -179,7 +178,6 @@ rocksIterSource ::
        , DBIteratorClass i
        , Bi (IterKey i)
        , Bi (IterValue i)
-       , HasCoreConfiguration
        )
     => DBTag
     -> Proxy i
@@ -231,7 +229,6 @@ dbIterSourceDefault ::
        , DBIteratorClass i
        , Bi (IterKey i)
        , Bi (IterValue i)
-       , HasCoreConfiguration
        )
     => DBTag
     -> Proxy i

@@ -55,8 +55,7 @@ action
     -> TxpConfiguration
     -> NtpConfiguration
     -> IO ()
-action (SimpleNodeArgs (cArgs@CommonNodeArgs {..}) (nArgs@NodeArgs {..})) coreConfig txpConfig ntpConfig = do
-    CLI.printInfoOnStart cArgs (configGenesisData coreConfig) ntpConfig txpConfig
+action (SimpleNodeArgs (cArgs@CommonNodeArgs {..}) (nArgs@NodeArgs {..})) coreConfig txpConfig _ntpConfig = do
     logInfo "Wallet is disabled, because software is built w/o it"
     currentParams <- CLI.getNodeParams loggerName
                                        cArgs
@@ -72,7 +71,12 @@ main :: IO ()
 main = withCompileInfo $ do
     args@(CLI.SimpleNodeArgs commonNodeArgs _) <- CLI.getSimpleNodeOptions
     let loggingParams = CLI.loggingParams loggerName commonNodeArgs
-    let conf = CLI.configurationOptions (CLI.commonArgs commonNodeArgs)
-    let blPath = AssetLockPath <$> cnaAssetLockPath commonNodeArgs
-    loggerBracket loggingParams . logException "node" $
-        withConfigurations blPath conf $ action args
+    let conf          = CLI.configurationOptions (CLI.commonArgs commonNodeArgs)
+    let blPath        = AssetLockPath <$> cnaAssetLockPath commonNodeArgs
+    loggerBracket loggingParams
+        . logException "node"
+        $ withConfigurations blPath
+                             (cnaDumpGenesisDataPath commonNodeArgs)
+                             (cnaDumpConfiguration commonNodeArgs)
+                             conf
+        $ action args
