@@ -663,8 +663,6 @@ instance FromJSON ImportWalletError where
 instance Show ImportWalletError where
     show = formatToString build
 
-instance Exception ImportWalletError
-
 instance Buildable ImportWalletError where
     build (ImportWalletFileNotFound fp) =
         bprint ("ImportWalletFileNotFound " % build) fp
