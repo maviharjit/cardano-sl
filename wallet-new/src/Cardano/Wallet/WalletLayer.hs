@@ -649,7 +649,7 @@ instance HasDiagnostic ImportWalletError where
 instance ToServantError ImportWalletError where
     declareServantError = \case
         ImportWalletFileNotFound _            -> err404
-        UpdateAccountWalletIdDecodingFailed _ -> err400
+        ImportWalletNoWalletFoundInBackup _   -> err400
         ImportWalletCreationFailed _          -> err400
 
 instance ToHttpErrorStatus ImportWalletError
@@ -692,14 +692,14 @@ instance HasDiagnostic GetTxError where
     getDiagnosticKey = \case
         GetTxMissingWalletIdError -> "missingWalletId"
         GetTxAddressDecodingFailed _ -> "message"
-        GetTxInvalidSortingOperaration _ -> "invalidSortingOperation"
+        GetTxInvalidSortingOperation _ -> "invalidSortingOperation"
         GetTxUnknownHdAccount _ -> "unknownAccount"
 
 instance ToServantError GetTxError where
     declareServantError = \case
         GetTxMissingWalletIdError -> err400
         GetTxAddressDecodingFailed _ -> err400
-        GetTxInvalidSortingOperaration _ -> err400
+        GetTxInvalidSortingOperation _ -> err400
         GetTxUnknownHdAccount _ -> err404
 
 instance ToHttpErrorStatus GetTxError
