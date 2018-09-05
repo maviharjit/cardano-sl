@@ -29,21 +29,14 @@ module Pos.Util.Wlog
         , usingLoggerName       -- call sites: 22 db,explorer,infra,lib,networking,node-ipc,tools,wallet,wallet-new
           -- * LoggerConfig
         , LoggerConfig (..)     -- call sites: 13  (mostly together with 'setupLogging')
-        , lcLogsDirectory       -- call sites: 1 tools/src/launcher/Main.hs
-        , lcTermSeverityOut     -- call sites: 1 tools/src/launcher/Main.hs
         , lcTree                -- call sites: 4 infra,lib,networking,tools
         , parseLoggerConfig     -- call sites: 2 lib,networking
           -- * Hierarchical tree of loggers (with lenses)
-        , HandlerWrap (..)      -- call sites: 1 tools/src/launcher/Main.hs
-        -- , hwFilePath            -- call sites: 1 infra/src/Pos/Infra/Reporting/Wlog.hs
-        -- , ltFiles               -- call sites: 2 infra/.../Reporting/Wlog.hs,tools/src/launcher/Main.hs
         , ltSeverity            -- call sites: 5 networking/src/Bench/Network/Commons.hs,tools/src/launcher/Main.hs
           -- * Builders for 'LoggerConfig'
         , productionB           -- call sites: 6 lib,networking,tools
-        , termSeveritiesOutB    -- call sites: 1 tools/src/keygen/Main.hs
           -- * Severity
         , Severity (..)
-        , debugPlus             -- call sites: 4 generator/app/VerificationBench.hs,tools:keygen|launcher
         , noticePlus            -- call sites: 1 networking/src/Network/Broadcast/OutboundQueue/Demo.hs
           -- * Saving Changes
         , retrieveLogContent    -- call sites: 1 infra/src/Pos/Infra/Reporting/Wlog.hs
@@ -60,10 +53,8 @@ module Pos.Util.Wlog
         , setLogPrefix
         ) where
 
-import           System.Wlog (HandlerWrap (..), debugPlus, lcLogsDirectory,
-                     lcTermSeverityOut, ltSeverity, noticePlus,
-                     removeAllHandlers, setLevel, termSeveritiesOutB,
-                     updateGlobalLogger)
+import           System.Wlog (ltSeverity, noticePlus, removeAllHandlers,
+                     setLevel, updateGlobalLogger)
 import           System.Wlog.Formatter (centiUtcTimeF)
 
 import           Pos.Util.Wlog.Compatibility (CanLog (..), HasLoggerName (..),
