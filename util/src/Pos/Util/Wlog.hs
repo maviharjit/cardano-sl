@@ -35,30 +35,19 @@ module Pos.Util.Wlog
         , parseLoggerConfig     -- call sites: 2 lib,networking
           -- * Hierarchical tree of loggers (with lenses)
         , HandlerWrap (..)      -- call sites: 1 tools/src/launcher/Main.hs
-        , fromScratch           -- call sites: 1 networking/src/Bench/Network/Commons.hs
-        , hwFilePath            -- call sites: 1 infra/src/Pos/Infra/Reporting/Wlog.hs
-        , ltFiles               -- call sites: 2 infra/.../Reporting/Wlog.hs,tools/src/launcher/Main.hs
+        -- , hwFilePath            -- call sites: 1 infra/src/Pos/Infra/Reporting/Wlog.hs
+        -- , ltFiles               -- call sites: 2 infra/.../Reporting/Wlog.hs,tools/src/launcher/Main.hs
         , ltSeverity            -- call sites: 5 networking/src/Bench/Network/Commons.hs,tools/src/launcher/Main.hs
-        , zoomLogger            -- call sites: 3 networking/src/Bench/Network/Commons.hs
-        , ltSubloggers          -- call sites: 1 infra/src/Pos/Infra/Reporting/Wlog.hs
           -- * Builders for 'LoggerConfig'
-        , consoleActionB        -- call sites: 3 generator/app/VerificationBench.hs,lib/src/Pos/Launcher/Resource.hs
-        , maybeLogsDirB         -- call sites: 2 lib/src/Pos/Launcher/Resource.hs,networking/src/Bench/Network/Commons.hs
-        , showTidB              -- call sites: 1 lib/src/Pos/Launcher/Resource.hs
         , productionB           -- call sites: 6 lib,networking,tools
-        , termSeveritiesOutB    -- call sites: 2 generator/app/VerificationBench.hs,tools/src/keygen/Main.hs
+        , termSeveritiesOutB    -- call sites: 1 tools/src/keygen/Main.hs
           -- * Severity
         , Severity (..)
         , debugPlus             -- call sites: 4 generator/app/VerificationBench.hs,tools:keygen|launcher
-        , errorPlus             -- call sites: 1 networking/src/Bench/Network/Commons.hs
-        , infoPlus              -- call sites: 2 networking/src/Bench/Network/Commons.hs
         , noticePlus            -- call sites: 1 networking/src/Network/Broadcast/OutboundQueue/Demo.hs
-        , warningPlus           -- call sites: 1 networking/src/Bench/Network/Commons.hs
           -- * Saving Changes
         , retrieveLogContent    -- call sites: 1 infra/src/Pos/Infra/Reporting/Wlog.hs
         , updateGlobalLogger    -- call sites: 1 networking/src/Network/Broadcast/OutboundQueue/Demo.hs
-          -- * LogHandler
-        , defaultHandleAction   -- call sites: 2 generator/app/VerificationBench.hs,lib/src/Pos/Launcher/Resource.hs
           -- * Logging messages with a condition
         , logMCond              -- call sites: 1 core/src/Pos/Core/Util/LogSafe.hs
         --   -- * LogHandler
@@ -68,25 +57,23 @@ module Pos.Util.Wlog
         , removeAllHandlers     -- call sites: 2 lib/src/Pos/Launcher/Resource.hs,networking/test/Test/Network/Broadcast/OutboundQueueSpec.hs
         , centiUtcTimeF         -- call sites: 1 networking/bench/LogReader/Main.hs
         , setLevel              -- call sites: 1 networking/src/Network/Broadcast/OutboundQueue/Demo.hs
+        , setLogPrefix
         ) where
 
-import           System.Wlog (HandlerWrap (..), consoleActionB, debugPlus,
-                     defaultHandleAction, errorPlus, fromScratch, hwFilePath,
-                     infoPlus, lcLogsDirectory, lcTermSeverityOut, lcTree,
-                     ltFiles, ltSeverity, ltSubloggers, maybeLogsDirB,
-                     noticePlus, parseLoggerConfig, productionB,
-                     removeAllHandlers, retrieveLogContent, setLevel, showTidB,
-                     termSeveritiesOutB, updateGlobalLogger, warningPlus,
-                     zoomLogger)
+import           System.Wlog (HandlerWrap (..), debugPlus, lcLogsDirectory,
+                     lcTermSeverityOut, ltSeverity, noticePlus,
+                     removeAllHandlers, setLevel, termSeveritiesOutB,
+                     updateGlobalLogger)
 import           System.Wlog.Formatter (centiUtcTimeF)
 
 import           Pos.Util.Wlog.Compatibility (CanLog (..), HasLoggerName (..),
                      LogEvent (..), LoggerConfig (..), LoggerName,
                      LoggerNameBox (..), NamedPureLogger (..), Severity (..),
-                     WithLogger, dispatchEvents, launchNamedPureLog, logDebug,
-                     logError, logInfo, logMCond, logMessage, logNotice,
-                     logWarning, runNamedPureLog, setupLogging,
-                     usingLoggerName)
+                     WithLogger, dispatchEvents, launchNamedPureLog, lcTree,
+                     logDebug, logError, logInfo, logMCond, logMessage,
+                     logNotice, logWarning, parseLoggerConfig, productionB,
+                     retrieveLogContent, runNamedPureLog, setLogPrefix,
+                     setupLogging, usingLoggerName)
 
 {-
   attempt for reducing complexity:

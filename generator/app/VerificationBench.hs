@@ -39,10 +39,10 @@ import           Pos.Launcher.Configuration (ConfigurationOptions (..),
                      HasConfigurations, defaultConfigurationOptions,
                      withConfigurationsM)
 import           Pos.Util.CompileInfo (withCompileInfo)
+import           Pos.Util.Log.LoggerConfig (defaultInteractiveConfiguration)
 import           Pos.Util.Util (realTime)
-import           Pos.Util.Wlog (LoggerConfig, LoggerName (..), consoleActionB,
-                     debugPlus, defaultHandleAction, logError, logInfo,
-                     setupLogging, termSeveritiesOutB)
+import           Pos.Util.Wlog (LoggerConfig, Severity (Debug), logError,
+                     logInfo, setupLogging)
 
 import           Test.Pos.Block.Logic.Mode (BlockTestMode, TestParams (..),
                      runBlockTestMode)
@@ -182,7 +182,7 @@ readBlocks path = do
 
 main :: IO ()
 main = do
-    setupLogging Nothing loggerConfig
+    setupLogging loggerConfig
     args <- Opts.execParser
         $ Opts.info
             (benchArgsParser <**> Opts.helper)
@@ -199,7 +199,7 @@ main = do
         fn :: GenesisData -> GenesisData
         fn gd = gd { gdProtocolConsts = (gdProtocolConsts gd) { gpcK = baK args } }
     withCompileInfo $
-        withConfigurationsM (LoggerName "verification-bench") Nothing cfo fn $ \ !coreConfig !txpConfig !_ -> do
+        withConfigurationsM "verification-bench" Nothing cfo fn $ \ !coreConfig !txpConfig !_ -> do
             let tp = TestParams
                     { _tpStartTime = Timestamp (convertUnit startTime)
                     , _tpBlockVersionData = genesisBlockVersionData
@@ -258,8 +258,7 @@ main = do
                         traverse_ (logError . show) errs
     where
         loggerConfig :: LoggerConfig
-        loggerConfig = termSeveritiesOutB debugPlus
-                <> consoleActionB defaultHandleAction
+        loggerConfig = defaultInteractiveConfiguration Debug
 
         avarage :: [Float] -> Float
         avarage as = sum as / realToFrac (length as)

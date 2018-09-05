@@ -19,8 +19,16 @@ module Pos.Util.Wlog.Compatibility
          , LoggerNameBox (..)
          , HasLoggerName (..)
          , usingLoggerName
-         , LoggerConfig (..)
          , Severity (..)
+           -- * LoggerConfig
+         , LoggerConfig (..)
+         , parseLoggerConfig
+         , productionB
+         , setLogPrefix
+         , lcTree
+         , ltHandlers
+         , lhName
+         , retrieveLogContent
            -- * Safe logging
          , SelectionMode
          , logMCond
@@ -39,6 +47,7 @@ import           Control.Monad.Morph (MFunctor (..))
 import qualified Control.Monad.State.Lazy as StateLazy
 import           Data.Map.Strict (lookup)
 import           Data.Sequence ((|>))
+import qualified Data.Text.IO as TIO
 import qualified Language.Haskell.TH as TH
 
 import           Pos.Util.Log (LoggerConfig (..), LoggingHandler, Severity (..))
@@ -47,8 +56,8 @@ import qualified Pos.Util.Log.Internal as Internal
 import           Pos.Util.Log.LoggerConfig (BackendKind (..), LogHandler (..),
                      LogSecurityLevel (..), RotationParameters (..),
                      defaultInteractiveConfiguration, lcBasePath, lcLoggerTree,
-                     lcRotation, lhBackend, lhFpath, lhMinSeverity, lhName,
-                     ltHandlers)
+                     lcRotation, lcTree, lhBackend, lhFpath, lhMinSeverity,
+                     lhName, ltHandlers, parseLoggerConfig, setLogPrefix)
 import           Pos.Util.Log.Scribes (mkDevNullScribe, mkJsonFileScribe,
                      mkStderrScribe, mkStdoutScribe, mkTextFileScribe)
 import           System.IO.Unsafe (unsafePerformIO)
@@ -234,6 +243,7 @@ setupLogging lc = do
                 -- default rotation parameters: max. 24 hours, max. 10 files kept, max. size 5 MB
                 rotation = fromMaybe (RotationParameters {_rpMaxAgeHours=24,_rpKeepFilesNum=10,_rpLogLimitBytes=5*1000*1000})
                                      (_lc ^. lcRotation)
+            --TODO move function below to top-level (and give appropriate name)
             forM lhs (\lh -> case (lh ^. lhBackend) of
                     FileJsonBE -> do
                         let bp = fromMaybe "." basepath
@@ -350,3 +360,13 @@ logMCond name severity msg cond = do
     let ns = K.Namespace [name]
     lh <- liftIO $ readMVar loggingHandler
     logItemS lh () ns Nothing (Internal.sev2klog severity) cond $ K.logStr msg
+
+-- LoggerConfig
+
+productionB :: LoggerConfig
+productionB = defaultInteractiveConfiguration Debug
+
+retrieveLogContent :: FilePath -> Maybe Int -> IO [Text]
+retrieveLogContent fp maylines = do
+    let nlines = fromMaybe 9999 maylines
+    ((take nlines) . reverse . lines) <$> TIO.readFile fp
