@@ -33,9 +33,9 @@ import           Cardano.Wallet.Kernel.DB.TxMeta.Types
 import           Cardano.Wallet.Kernel.Decrypt (WalletDecrCredentialsKey (..),
                      decryptAddress, keyToWalletDecrCredentials)
 import           Cardano.Wallet.Kernel.Internal (WalletRestorationInfo (..),
-                     cancelRestoration, walletMeta, walletNode,
-                     walletRestorationTask, wallets, wriCancel, wriCurrentSlot,
-                     wriTargetSlot, wriThroughput)
+                     WalletRestorationProgress (..), cancelRestoration,
+                     walletMeta, walletNode, walletRestorationTask, wallets,
+                     wriCancel, wrpCurrentSlot, wrpTargetSlot, wrpThroughput)
 import           Cardano.Wallet.Kernel.NodeStateAdaptor (Lock, LockContext (..),
                      NodeConstraints, WithNodeState, filterUtxo,
                      getSecurityParameter, getSlotCount, mostRecentMainBlock,
@@ -127,10 +127,13 @@ beginRestoration pw wId prefilter root (tgtTip, tgtSlot) restart = do
 
     -- Set the wallet's restoration information
     slotCount <- getSlotCount (pw ^. walletNode)
+    progress <- newIORef $ WalletRestorationProgress
+                           { _wrpCurrentSlot = 0
+                           , _wrpTargetSlot  = flattenSlotId slotCount tgtSlot
+                           , _wrpThroughput  = MeasuredIn 0
+                           }
     let restoreInfo = WalletRestorationInfo
-                      { _wriCurrentSlot = 0
-                      , _wriTargetSlot  = flattenSlotId slotCount tgtSlot
-                      , _wriThroughput  = MeasuredIn 0
+                      { _wriProgress    = readIORef progress
                       , _wriCancel      = return ()
                       , _wriRestart     = restart
                       }
@@ -150,11 +153,13 @@ beginRestoration pw wId prefilter root (tgtTip, tgtSlot) restart = do
         catch (restoreWalletHistoryAsync pw
                                          (root ^. HD.hdRootId)
                                          prefilter
+                                         progress
                                          (tgtTip, tgtSlot)) $ \(e :: SomeException) ->
               (pw ^. walletLogMessage) Error ("Exception during restoration: " <> show e)
 
     -- Set up the cancellation action
-    updateRestorationInfo pw wId (wriCancel .~ cancel restoreTask)
+    modifyMVar_ (pw ^. walletRestorationTask)
+                (pure . M.adjust (wriCancel .~ cancel restoreTask) wId)
 
 -- | Information we need to start the restoration process
 data WalletInitInfo =
@@ -228,9 +233,10 @@ getWalletInitInfo wKey@(wId, wdc) lock = do
 restoreWalletHistoryAsync :: Kernel.PassiveWallet
                           -> HD.HdRootId
                           -> (Blund -> IO (Map HD.HdAccountId PrefilteredBlock, [TxMeta]))
+                          -> IORef WalletRestorationProgress
                           -> (HeaderHash, SlotId)
                           -> IO ()
-restoreWalletHistoryAsync wallet rootId prefilter (tgtHash, tgtSlot) =
+restoreWalletHistoryAsync wallet rootId prefilter progress (tgtHash, tgtSlot) =
     -- 'getFirstGenesisBlockHash' is confusingly named: it returns the hash of
     -- the first block /after/ the genesis block.
     withNode getFirstGenesisBlockHash >>= restore NoTimingData
@@ -267,11 +273,11 @@ restoreWalletHistoryAsync wallet rootId prefilter (tgtHash, tgtSlot) =
             slotCount <- getSlotCount (wallet ^. walletNode)
             let flat             = flattenSlotId slotCount
                 blockPerSec      = MeasuredIn . BlockCount . perSecond <$> rate
-                throughputUpdate = maybe identity (set wriThroughput) blockPerSec
+                throughputUpdate = maybe identity (set wrpThroughput) blockPerSec
                 slotId           = mb ^. mainBlockSlot
-            updateRestorationInfo wallet wId ( (wriCurrentSlot .~ flat slotId)
-                                             . (wriTargetSlot  .~ flat tgtSlot)
-                                             . throughputUpdate )
+            modifyIORef progress ( (wrpCurrentSlot .~ flat slotId)
+                                 . (wrpTargetSlot  .~ flat tgtSlot)
+                                 . throughputUpdate )
             -- Store the TxMetas
             forM_ txMetas (putTxMeta (wallet ^. walletMeta))
 
@@ -312,22 +318,6 @@ restoreWalletHistoryAsync wallet rootId prefilter (tgtHash, tgtSlot) =
 
     withNode :: forall a. (NodeConstraints => WithNodeState IO a) -> IO a
     withNode action = withNodeState (wallet ^. walletNode) (\_lock -> action)
-
--- Update the restoration information for a wallet. If somebody else is holding
--- the 'walletRestorationTask' MVar, we'll just skip this; the worst that can
--- happen is the restoration's progress information is not quite up-to-date.
---
--- Under normal circumstances, there should not be much contention for the
--- WalletRestorationInfo MVar, and we expect this function to succeed.
-updateRestorationInfo :: Kernel.PassiveWallet
-                      -> WalletId
-                      -> (WalletRestorationInfo -> WalletRestorationInfo)
-                      -> IO ()
-updateRestorationInfo wallet wId upd =
-    tryTakeMVar wrt >>= \case
-        Nothing   -> return ()
-        Just info -> void $ tryPutMVar wrt (M.adjust upd wId info)
-  where wrt = wallet ^. walletRestorationTask
 
 {-------------------------------------------------------------------------------
   Timing information (for throughput calculations)

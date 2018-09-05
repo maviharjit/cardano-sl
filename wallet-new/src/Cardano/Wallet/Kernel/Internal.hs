@@ -21,13 +21,15 @@ module Cardano.Wallet.Kernel.Internal (
   , ActiveWallet(..)
     -- * Restoration data
   , WalletRestorationInfo(..)
+  , WalletRestorationProgress(..)
     -- ** Utility functions
   , cancelRestoration
   , restartRestoration
     -- ** Lenses
-  , wriCurrentSlot
-  , wriTargetSlot
-  , wriThroughput
+  , wrpCurrentSlot
+  , wrpTargetSlot
+  , wrpThroughput
+  , wriProgress
   , wriCancel
   , wriRestart
   ) where
@@ -121,18 +123,24 @@ data PassiveWallet = PassiveWallet {
 -- visibility into a restoration task, it also provides an action
 -- that can be used to cancel the background restoration task.
 data WalletRestorationInfo = WalletRestorationInfo
-  { _wriCurrentSlot :: FlatSlotId
-     -- ^ The most recently restored slot
-  , _wriTargetSlot  :: FlatSlotId
-     -- ^ The target slot; when restoration reaches this slot,
-     -- it is finished and the wallet is up-to-date.
-  , _wriThroughput  :: MeasuredIn 'BlocksPerSecond BlockCount
-    -- ^ Speed of restoration.
-  , _wriCancel      :: IO ()
+  { _wriProgress :: IO WalletRestorationProgress
+     -- ^ Information on how the restoration is progressing.
+  , _wriCancel   :: IO ()
     -- ^ The action that can be used to cancel the restoration task.
-  , _wriRestart     :: IO ()
+  , _wriRestart  :: IO ()
     -- ^ Restart the restoration task from scratch, using the current tip.
   }
+
+-- | Data needed to assess the progress of a wallet restoration.
+data WalletRestorationProgress = WalletRestorationProgress
+    { _wrpCurrentSlot :: FlatSlotId
+      -- ^ The most recently restored slot
+    , _wrpTargetSlot  :: FlatSlotId
+      -- ^ The target slot; when restoration reaches this slot,
+      -- it is finished and the wallet is up-to-date.
+    , _wrpThroughput  :: MeasuredIn 'BlocksPerSecond BlockCount
+      -- ^ Speed of restoration.
+    }
 
 cancelRestoration :: WalletRestorationInfo -> IO ()
 cancelRestoration = _wriCancel
@@ -142,6 +150,7 @@ restartRestoration = _wriRestart
 
 makeLenses ''PassiveWallet
 makeLenses ''WalletRestorationInfo
+makeLenses ''WalletRestorationProgress
 
 {-------------------------------------------------------------------------------
   Active wallet
