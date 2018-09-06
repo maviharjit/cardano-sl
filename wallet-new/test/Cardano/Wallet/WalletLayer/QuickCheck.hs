@@ -186,7 +186,7 @@ instance Arbitrary CreateAddressError where
 instance Arbitrary GetTxError where
     arbitrary = oneof [ pure GetTxMissingWalletIdError
                       , pure (GetTxAddressDecodingFailed "by_amount")
-                      , pure (GetTxInvalidSortingOperaration "123")
+                      , pure (GetTxInvalidSortingOperation "123")
                       , GetTxUnknownHdAccount <$> arbitrary
                       ]
 
