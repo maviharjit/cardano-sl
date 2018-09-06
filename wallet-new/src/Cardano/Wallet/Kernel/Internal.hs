@@ -26,7 +26,6 @@ module Cardano.Wallet.Kernel.Internal (
     -- ** Utility functions
   , newRestorationTasks
   , addRestoration
-  , updateRestoration
   , removeRestoration
   , lookupRestorationInfo
   , currentRestorations
@@ -178,13 +177,6 @@ addRestoration pw wId restoreInfo =
        whenJust (Map.lookup wId wrt) cancelRestoration
        -- Register this restoration task with the wallet.
        return (Map.insert wId restoreInfo wrt)
-
-updateRestoration :: PassiveWallet
-                  -> WalletId
-                  -> (WalletRestorationInfo -> WalletRestorationInfo)
-                  -> IO ()
-updateRestoration pw wId upd =
-    modifyMVar_ (pw ^. walletRestorationTask . to _wrt) (pure . Map.adjust upd wId)
 
 removeRestoration :: PassiveWallet -> WalletId -> IO ()
 removeRestoration pw wId =

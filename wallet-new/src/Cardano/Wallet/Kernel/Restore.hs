@@ -33,9 +33,8 @@ import           Cardano.Wallet.Kernel.Decrypt (WalletDecrCredentialsKey (..),
                      decryptAddress, keyToWalletDecrCredentials)
 import           Cardano.Wallet.Kernel.Internal (WalletRestorationInfo (..),
                      WalletRestorationProgress (..), addRestoration,
-                     removeRestoration, updateRestoration, walletMeta,
-                     walletNode, wallets, wriCancel, wrpCurrentSlot,
-                     wrpTargetSlot, wrpThroughput)
+                     removeRestoration, walletMeta, walletNode, wallets,
+                     wrpCurrentSlot, wrpTargetSlot, wrpThroughput)
 import           Cardano.Wallet.Kernel.NodeStateAdaptor (Lock, LockContext (..),
                      NodeConstraints, WithNodeState, filterUtxo,
                      getSecurityParameter, getSlotCount, mostRecentMainBlock,
@@ -132,9 +131,11 @@ beginRestoration pw wId prefilter root (tgtTip, tgtSlot) restart = do
                            , _wrpTargetSlot  = flattenSlotId slotCount tgtSlot
                            , _wrpThroughput  = MeasuredIn 0
                            }
+    theTask <- newEmptyMVar
+
     let restoreInfo = WalletRestorationInfo
                       { _wriProgress = readIORef progress
-                      , _wriCancel   = return ()
+                      , _wriCancel   = tryTakeMVar theTask >>= (`whenJust` cancel)
                       , _wriPrepare  = return M.empty
                       , _wriRestart  = restart
                       }
@@ -155,8 +156,7 @@ beginRestoration pw wId prefilter root (tgtTip, tgtSlot) restart = do
                                          (tgtTip, tgtSlot)) $ \(e :: SomeException) ->
               (pw ^. walletLogMessage) Error ("Exception during restoration: " <> show e)
 
-    -- Set up the cancellation action
-    updateRestoration pw wId (wriCancel .~ cancel restoreTask)
+    putMVar theTask restoreTask
 
 -- | Information we need to start the restoration process
 data WalletInitInfo =
