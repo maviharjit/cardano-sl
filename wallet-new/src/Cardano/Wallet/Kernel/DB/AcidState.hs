@@ -43,6 +43,7 @@ module Cardano.Wallet.Kernel.DB.AcidState (
   , NewPendingError(..)
   , NewForeignError(..)
   , SwitchToForkError(..)
+  , SwitchToForkInternalError(..)
   ) where
 
 import           Universum
@@ -132,12 +133,20 @@ data NewForeignError =
   | NewForeignFailed Spec.NewForeignFailed
 
 -- | Errors thrown by 'SwitchToFork'
-data SwitchToForkError =
+data SwitchToForkInternalError =
     -- | We cannot roll back  when we don't have full historical data available
     RollbackDuringRestoration
 
     -- | Apply block failed
-  | ApplyBlockFailed Spec.ApplyBlockFailed
+  | ApplyBlockFailedInternal Spec.ApplyBlockFailed
+
+    -- | There were not a sufficient number of new blocks provided.
+  | NotEnoughBlocksInternal
+
+-- | Errors thrown by 'SwitchToFork'
+data SwitchToForkError =
+    -- | Apply block failed
+    ApplyBlockFailed Spec.ApplyBlockFailed
 
     -- | There were not a sufficient number of new blocks provided.
   | NotEnoughBlocks
@@ -145,6 +154,7 @@ data SwitchToForkError =
 deriveSafeCopy 1 'base ''NewPendingError
 deriveSafeCopy 1 'base ''NewForeignError
 deriveSafeCopy 1 'base ''SwitchToForkError
+deriveSafeCopy 1 'base ''SwitchToForkInternalError
 
 {-------------------------------------------------------------------------------
   Wrap wallet spec
@@ -366,13 +376,14 @@ restorationComplete k rootId = runUpdateNoErrors $ zoom dbHdWallets $
 switchToFork :: SecurityParameter
              -> Int
              -> [(BlockContext, Map HdAccountId PrefilteredBlock)]
-             -> Update DB (Either SwitchToForkError
+             -> Map HdAccountId HdAccountState
+             -> Update DB (Either SwitchToForkInternalError
                                   (Map HdAccountId (Pending, Set TxId)))
-switchToFork k n blocks = runUpdateDiscardSnapshot $ zoom dbHdWallets $
+switchToFork k n blocks _acctStates = runUpdateDiscardSnapshot $ zoom dbHdWallets $
     updateAccounts =<< mkUpdates <$> use hdWalletsAccounts
   where
     mkUpdates :: IxSet HdAccount
-              -> [AccountUpdate SwitchToForkError (Pending, Set TxId)]
+              -> [AccountUpdate SwitchToForkInternalError (Pending, Set TxId)]
     mkUpdates existingAccounts =
           map mkUpdate
         . Map.toList
@@ -381,14 +392,14 @@ switchToFork k n blocks = runUpdateDiscardSnapshot $ zoom dbHdWallets $
         $ blocks
 
     mkUpdate :: (HdAccountId, OldestFirst [] PrefilteredBlock)
-             -> AccountUpdate SwitchToForkError (Pending, Set TxId)
+             -> AccountUpdate SwitchToForkInternalError (Pending, Set TxId)
     mkUpdate (accId, pbs) = AccountUpdate {
           accountUpdateId    = accId
         , accountUpdateAddrs = concatMap pfbAddrs pbs
         , accountUpdateNew   = AccountUpdateNewUpToDate Map.empty
         , accountUpdate      =
             matchHdAccountCheckpoints
-              (mapUpdateErrors ApplyBlockFailed $ Spec.switchToFork k n pbs)
+              (mapUpdateErrors ApplyBlockFailedInternal $ Spec.switchToFork k n pbs)
               (throwError RollbackDuringRestoration)
         }
 
@@ -416,7 +427,7 @@ switchToFork k n blocks = runUpdateDiscardSnapshot $ zoom dbHdWallets $
 -- Returns the set of pending transactions that have become pending again,
 -- for each account.
 -- See 'switchToFork' for use in real code.
-observableRollbackUseInTestsOnly :: Update DB (Either SwitchToForkError
+observableRollbackUseInTestsOnly :: Update DB (Either SwitchToForkInternalError
                                                       (Map HdAccountId Pending))
 observableRollbackUseInTestsOnly = runUpdateDiscardSnapshot $
     zoomAll (dbHdWallets . hdWalletsAccounts) $

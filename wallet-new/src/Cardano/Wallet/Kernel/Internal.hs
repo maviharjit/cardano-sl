@@ -31,6 +31,7 @@ module Cardano.Wallet.Kernel.Internal (
   , lookupRestorationInfo
   , currentRestorations
   , cancelRestoration
+  , prepareForRestoration
   , restartRestoration
     -- ** Lenses
   , wrpCurrentSlot
@@ -38,6 +39,7 @@ module Cardano.Wallet.Kernel.Internal (
   , wrpThroughput
   , wriProgress
   , wriCancel
+  , wriPrepare
   , wriRestart
   ) where
 
@@ -55,6 +57,7 @@ import           Pos.Util.Wlog (Severity (..))
 import           Cardano.Wallet.API.Types.UnitOfMeasure (MeasuredIn (..),
                      UnitOfMeasure (..))
 import           Cardano.Wallet.Kernel.DB.AcidState (DB)
+import           Cardano.Wallet.Kernel.DB.HdWallet
 import           Cardano.Wallet.Kernel.DB.TxMeta
 import           Cardano.Wallet.Kernel.Diffusion (WalletDiffusion (..))
 import           Cardano.Wallet.Kernel.Keystore (Keystore)
@@ -143,6 +146,9 @@ data WalletRestorationInfo = WalletRestorationInfo
      -- ^ Information on how the restoration is progressing.
   , _wriCancel   :: IO ()
     -- ^ The action that can be used to cancel the restoration task.
+  , _wriPrepare  :: IO (Map HdAccountId HdAccountState)
+    -- ^ The action that can be used to cancel pending restoration tasks and
+    -- get a list of initial account states to use.
   , _wriRestart  :: IO ()
     -- ^ Restart the restoration task from scratch, using the current tip.
   }
@@ -192,6 +198,9 @@ cancelRestoration = _wriCancel
 
 restartRestoration :: WalletRestorationInfo -> IO ()
 restartRestoration = _wriRestart
+
+prepareForRestoration :: WalletRestorationInfo -> IO (Map HdAccountId HdAccountState)
+prepareForRestoration = _wriPrepare
 
 {-------------------------------------------------------------------------------
   Active wallet

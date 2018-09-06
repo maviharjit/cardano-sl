@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 -- | React to BListener events
 module Cardano.Wallet.Kernel.BListener (
     -- * Respond to block chain events
@@ -13,14 +15,16 @@ import           Control.Concurrent.MVar (modifyMVar_)
 import           Data.Acid.Advanced (update')
 import qualified Data.Map.Strict as Map
 
+import           Pos.Core.Txp (TxId)
 import           Pos.Crypto (EncryptedSecretKey)
 
 import           Cardano.Wallet.Kernel.DB.AcidState (ApplyBlock (..),
                      ObservableRollbackUseInTestsOnly (..), SwitchToFork (..),
-                     SwitchToForkError (..))
+                     SwitchToForkError (..), SwitchToForkInternalError (..))
 import           Cardano.Wallet.Kernel.DB.BlockContext
 import           Cardano.Wallet.Kernel.DB.HdWallet
 import           Cardano.Wallet.Kernel.DB.Resolved (ResolvedBlock, rbContext)
+import           Cardano.Wallet.Kernel.DB.Spec.Pending (Pending)
 import           Cardano.Wallet.Kernel.DB.Spec.Update (ApplyBlockFailed)
 import           Cardano.Wallet.Kernel.DB.TxMeta.Types
 import           Cardano.Wallet.Kernel.Internal
@@ -79,18 +83,7 @@ switchToFork pw@PassiveWallet{..} n bs = do
     blocksAndMeta <- mapM (prefilterBlock' pw) bs
     let (blockssByAccount, metas) = unzip blocksAndMeta
 
-    -- Stop all of the current restorations, and delete all accounts in
-    -- the restoring wallets.
-    restorations <- currentRestorations pw
-    mapM_ cancelRestoration (Map.elems restorations)
-
-    -- Switch to the new fork.
-    res <- update' _wallets $ SwitchToFork k n blockssByAccount
-
-    -- Restart all of the current restorations from the genesis block.
-    mapM_ restartRestoration (Map.elems restorations)
-
-    case res of
+    trySwitchingToFork k blockssByAccount >>= \case
         Left  err     -> return $ Left err
         Right changes -> do
             mapM_ (putTxMeta _walletMeta) $ concat metas
@@ -99,13 +92,33 @@ switchToFork pw@PassiveWallet{..} n bs = do
             modifyMVar_ _walletSubmission $
                 return . Submission.remPending (snd <$> changes)
             return $ Right ()
+  where
+
+    trySwitchingToFork :: Node.SecurityParameter
+                       -> [(BlockContext, Map HdAccountId PrefilteredBlock)]
+                       -> IO (Either SwitchToForkError (Map HdAccountId (Pending, Set TxId)))
+    trySwitchingToFork k blockssByAccount = do
+        -- Find any new restorations that we didn't know about.
+        restorations <- Map.elems <$> currentRestorations pw
+        -- Stop the restorations and get the re-started account states that should be used.
+        newAccts <- Map.unions <$> mapM prepareForRestoration restorations
+        -- Switch to the fork, retrying if another restoration begins in the meantime.
+        update' _wallets (SwitchToFork k n blockssByAccount newAccts) >>= \case
+            Left RollbackDuringRestoration      -> trySwitchingToFork k blockssByAccount
+              -- ^ Some more accounts started restoring, try again.
+            Left (ApplyBlockFailedInternal err) -> return $ Left (ApplyBlockFailed err)
+            Left NotEnoughBlocksInternal        -> return $ Left NotEnoughBlocks
+            Right changes                       -> do
+                -- Restart the restorations, and return the changes.
+                mapM_ restartRestoration restorations
+                return $ Right changes
 
 -- | Observable rollback
 --
 -- Only used for tests. See 'switchToFork'.
 -- TODO(kde): Do we want tests to deal with metadata?
 observableRollbackUseInTestsOnly :: PassiveWallet
-                                 -> IO (Either SwitchToForkError ())
+                                 -> IO (Either SwitchToForkInternalError ())
 observableRollbackUseInTestsOnly PassiveWallet{..} = do
     res <- update' _wallets $ ObservableRollbackUseInTestsOnly
     case res of
