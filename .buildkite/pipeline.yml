@@ -13,3 +13,15 @@ steps:
     command: "cd explorer/frontend && ./nix/generate-frontend-deps.hs --test"
     agents:
       system: x86_64-linux
+
+  - label: 'stack rebuild'
+    env:
+      # fixme: bucket in eu-central-1 is better for buildkite agents
+      AWS_REGION: us-west-1
+      S3_BUCKET: appveyor-ci-cache
+      CACHE_S3_MAX_SIZE: 1600MB
+    command:
+      - nix-build scripts/ci/buildkite -o stack-rebuild
+      - ./stack-rebuild
+    agents:
+      system: x86_64-linux
