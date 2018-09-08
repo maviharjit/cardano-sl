@@ -15,6 +15,7 @@ data BuildkiteEnv = BuildkiteEnv
 data CICacheConfig = CICacheConfig
   { ccMaxSize :: Maybe Text
   , ccBucket  :: Text
+  , ccRegion  :: Maybe Text
   , ccPrefix  :: Text
   , ccBranch  :: Text
   } deriving (Show)
@@ -60,6 +61,7 @@ getCacheConfig :: Maybe BuildkiteEnv -> IO (Either Text CICacheConfig)
 getCacheConfig Nothing  = pure (Left "BUILDKITE_* environment variables are not set")
 getCacheConfig (Just BuildkiteEnv{..}) = do
   ccMaxSize <- need "CACHE_S3_MAX_SIZE"
+  ccRegion <- need "AWS_REGION"
   need "S3_BUCKET" >>= \case
     Just ccBucket -> pure (Right CICacheConfig{ccBranch=bkBranch, ccPrefix=bkPipeline, ..})
     Nothing -> pure (Left "S3_BUCKET environment variable is not set")
@@ -95,8 +97,9 @@ saveCICache cfg = do
 cacheS3 :: CICacheConfig -> Maybe Text -> Text -> IO ()
 cacheS3 CICacheConfig{..} baseBranch cmd = procs "cache-s3" args empty
   where
-    args = ml maxSize ++
-           [ format ("--prefix="%s) ccPrefix
+    args = ml maxSize ++ ml regionArg ++
+           [ format ("--bucket="%s) ccBucket
+           , format ("--prefix="%s) ccPrefix
            , format ("--git-branch="%s) ccBranch
            , "--suffix=linux"
            , "-v"
@@ -104,5 +107,6 @@ cacheS3 CICacheConfig{..} baseBranch cmd = procs "cache-s3" args empty
            ] ++ cmds ++ ml baseBranchArg
     baseBranchArg = format ("--base-branch="%s) <$> baseBranch
     maxSize = format ("--max-size="%s) <$> ccMaxSize
+    regionArg = format ("--region="%s) <$> ccRegion
     cmds = ("-c":T.words cmd)
     ml = maybe [] pure
