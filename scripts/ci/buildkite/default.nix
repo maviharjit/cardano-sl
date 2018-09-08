@@ -4,7 +4,7 @@ in
 { system ? builtins.currentSystem
 , config ? {}
 , pkgs ? (import (localLib.fetchNixPkgs) { })
-, buildTools ? with pkgs; [ git nix ]
+, buildTools ? with pkgs; [ git nix gnumake ]
 }:
 
 with pkgs.lib;
@@ -22,6 +22,6 @@ let
 in
   writeScript "stack-rebuild-wrapped" ''
     #!${stdenv.shell}
-    export PATH=${lib.makeBinPath ([ cache-s3 stack coreutils ] ++ buildTools)}
+    export PATH=${lib.makeBinPath ([ cache-s3 stack gnused coreutils ] ++ buildTools)}
     exec ${stackRebuild} "$@"
   ''

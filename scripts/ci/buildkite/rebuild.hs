@@ -23,6 +23,7 @@ data CICacheConfig = CICacheConfig
 main :: IO ()
 main = do
   awsCreds
+  enableNixIntegration
   bk <- getBuildkiteEnv
   cacheConfig <- getCacheConfig bk
   cacheDownloadStep cacheConfig
@@ -32,7 +33,7 @@ main = do
 buildStep :: IO ()
 buildStep = do
   echo "+++ Build and test"
-  procs "stack" ["--nix", "build", "--fast", "--test", "--bench", "--no-run-benchmarks"] empty
+  run "stack" ["build", "--fast", "--test", "--bench", "--no-run-benchmarks"]
 
 -- buildkite agents have S3 creds installed, but under different names
 awsCreds :: IO ()
@@ -46,6 +47,12 @@ awsCreds = mapM_ (uncurry copy) things
              , ( "BUILDKITE_S3_DEFAULT_REGION"
                , "AWS_DEFAULT_REGION")
              ]
+
+-- cache-s3 runs stack to get paths, etc.
+-- need to enable nix in /etc/stack/config.yaml.
+-- in the meantime, do edit of the local stack config.
+enableNixIntegration :: IO ()
+enableNixIntegration = procs "sed" ["-i", "-e", "s/nix:/nix:\\n  enable: true/", "stack.yaml"] empty
 
 getBuildkiteEnv :: IO (Maybe BuildkiteEnv)
 getBuildkiteEnv = runMaybeT $ do
@@ -95,7 +102,7 @@ saveCICache cfg = do
   cacheS3 cfg Nothing "save stack work"
 
 cacheS3 :: CICacheConfig -> Maybe Text -> Text -> IO ()
-cacheS3 CICacheConfig{..} baseBranch cmd = procs "cache-s3" args empty
+cacheS3 CICacheConfig{..} baseBranch cmd = run "cache-s3" args
   where
     args = ml maxSize ++ ml regionArg ++
            [ format ("--bucket="%s) ccBucket
@@ -110,3 +117,10 @@ cacheS3 CICacheConfig{..} baseBranch cmd = procs "cache-s3" args empty
     regionArg = format ("--region="%s) <$> ccRegion
     cmds = ("-c":T.words cmd)
     ml = maybe [] pure
+
+run :: Text -> [Text] -> IO ()
+run cmd args = do
+  printf (s%" "%s%"\n") cmd (T.unwords args)
+  proc cmd args empty >>= \case
+    ExitSuccess -> pure ()
+    ExitFailure code -> eprintf ("error: Command exited with code "%d%"!\nContinuing...\n") code
