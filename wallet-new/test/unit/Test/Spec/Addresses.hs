@@ -6,6 +6,7 @@ import           Universum
 import           Control.Monad.Except (runExceptT)
 import           Data.Acid (update)
 import qualified Data.ByteString as B
+-- import qualified Data.List as L
 import qualified Data.Map.Strict as M
 import           Formatting (build, sformat)
 import           Servant.Server
@@ -15,7 +16,7 @@ import           Test.Hspec.QuickCheck (prop)
 import           Test.QuickCheck (arbitrary, choose, withMaxSuccess)
 import           Test.QuickCheck.Monadic (PropertyM, monadicIO, pick)
 
-import           Pos.Core (Address)
+import           Pos.Core (Address, addrRoot)
 import           Pos.Crypto (EncryptedSecretKey, safeDeterministicKeyGen)
 
 import           Cardano.Wallet.API.Request (RequestParams (..))
@@ -105,6 +106,35 @@ prepareAddressFixture n = do
              Left e     -> error (show e)
              Right addr -> return (map AddressFixture addr)
 
+prepareAddressesFixture
+    :: Int  -- ^ Number of Accounts to create.
+    -> Int  -- ^ Number of 'Address per account to create.
+    -> Fixture.GenPassiveWalletFixture (M.Map V1.AccountIndex [V1.WalletAddress])
+prepareAddressesFixture acn adn = do
+    spendingPassword <- Fixture.genSpendingPassword
+    newWalletRq <- WalletLayer.CreateWallet <$> Wallets.genNewWalletRq spendingPassword
+    return $ \pw -> do
+        let newAcc (n :: Int) = (V1.NewAccount spendingPassword ("My Account " <> show n))
+        Right v1Wallet <- Wallets.createWallet pw newWalletRq
+        forM_ [1..acn] $ \n ->
+            Accounts.createAccount pw (V1.walId v1Wallet) (WalletLayer.CreateHdAccountRandomIndex $ newAcc n)
+        -- Get all the available accounts
+        db <- Kernel.getWalletSnapshot pw
+        let Right accs = Accounts.getAccounts (V1.walId v1Wallet) db
+        let accounts = IxSet.toList accs
+        length accounts `shouldBe` (acn + 1)
+        let insertAddresses :: V1.Account -> IO (V1.AccountIndex, [V1.WalletAddress])
+            insertAddresses acc = do
+                let accId = V1.accIndex acc
+                let newAddressRq = V1.NewAddress spendingPassword accId (V1.walId v1Wallet)
+                res <- replicateM adn (Addresses.createAddress pw newAddressRq)
+                case sequence res of
+                    Left e     -> error (show e)
+                    Right addr -> return (accId, addr)
+        res <- mapM insertAddresses accounts
+        return $ M.fromList res
+
+
 withFixture :: (  Keystore.Keystore
                -> PassiveWalletLayer IO
                -> PassiveWallet
@@ -127,9 +157,72 @@ withAddressFixtures n =
   Fixture.withPassiveWalletFixture $ do
       prepareAddressFixture n
 
+withAddressesFixtures :: Int -> Int ->
+       (  Keystore.Keystore
+    -> PassiveWalletLayer IO
+    -> PassiveWallet
+    -> M.Map V1.AccountIndex [V1.WalletAddress]
+    -> IO a
+    )
+    -> PropertyM IO a
+withAddressesFixtures n m =
+    Fixture.withPassiveWalletFixture $ do
+        prepareAddressesFixture n m
+
 spec :: Spec
 spec = describe "Addresses" $ do
     describe "CreateAddress" $ do
+        describe "Address listing with multiple Accounts (Servant)" $ do
+
+
+            prop "page 1, 2 pages" $ withMaxSuccess 20 $ do
+                monadicIO $
+                    withAddressesFixtures 3 8 $ \_ layer _ _ -> do
+                        let (expectedTotal :: Int) = (3 + 1)*(8 + 1) -1
+                        let pp = PaginationParams (Page 1) (PerPage 40)
+                        let pp1 = PaginationParams (Page 1) (PerPage (quot expectedTotal 3 + 1))
+                        let pp2 = PaginationParams (Page 2) (PerPage (quot expectedTotal 3 + 1))
+                        let pp3 = PaginationParams (Page 3) (PerPage (quot expectedTotal 3 + 1))
+                        res <- runExceptT $ runHandler' $ do
+                            Handlers.listAddresses layer (RequestParams pp)
+                        res1 <- runExceptT $ runHandler' $ do
+                            Handlers.listAddresses layer (RequestParams pp1)
+                        res2 <- runExceptT $ runHandler' $ do
+                            Handlers.listAddresses layer (RequestParams pp2)
+                        res3 <- runExceptT $ runHandler' $ do
+                            Handlers.listAddresses layer (RequestParams pp3)
+                        case (res, res1, res2, res3) of
+                            (Right wr, Right wr1, Right wr2, Right wr3) -> do
+                                length (wrData wr) `shouldBe` expectedTotal
+                                length (wrData wr1) + length (wrData wr2) + length (wrData wr3) `shouldBe` expectedTotal
+                                (addrRoot . V1.unV1 . V1.addrId <$> wrData wr1 <> wrData wr2 <> wrData wr3)
+                                    `shouldBe` (addrRoot . V1.unV1 . V1.addrId <$> wrData wr) -- (addrRoot . V1.unV1 . V1.addrId <$> concat (M.elems mp))
+--                                (addrRoot . V1.unV1 . V1.addrId <$> wrData wr1 <> wrData wr2) `shouldSatisfy`
+--                                    (L.isSubsequenceOf (addrRoot . V1.unV1 . V1.addrId <$> concat (M.elems mp)))
+                            _        -> fail ("Got " ++ show res)
+
+            prop "page 0, per page 0" $ withMaxSuccess 20 $ do
+                monadicIO $
+                    withAddressesFixtures 4 4 $ \_ layer _ _ -> do
+                        let pp = PaginationParams (Page 0) (PerPage 0)
+                        res <- runExceptT $ runHandler' $ do
+                            Handlers.listAddresses layer (RequestParams pp)
+                        case res of
+                            Right wr | null (wrData wr) -> pure ()
+                            _ -> fail ("Got " ++ show res)
+
+            prop "page 1, per page 40" $ withMaxSuccess 20 $ do
+                monadicIO $
+                    withAddressesFixtures 3 4 $ \_ layer _ _ -> do
+                        let pp = PaginationParams (Page 1) (PerPage 40)
+                        res <- runExceptT $ runHandler' $ do
+                            Handlers.listAddresses layer (RequestParams pp)
+                        case res of
+                            Right wr -> do
+                                length (wrData wr) `shouldBe` ((3 + 1)*(4 + 1) - 1)
+                            _        -> fail ("Got " ++ show res)
+
+
         describe "Address creation (wallet layer)" $ do
             prop "works as expected in the happy path scenario" $ withMaxSuccess 200 $
                 monadicIO $ do
