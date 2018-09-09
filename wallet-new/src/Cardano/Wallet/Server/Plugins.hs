@@ -36,16 +36,19 @@ import           Pos.Infra.Shutdown (HasShutdownContext (shutdownContext),
                      ShutdownContext)
 import           Pos.Launcher.Configuration (HasConfigurations)
 import           Pos.Util.CompileInfo (HasCompileInfo)
-import           Pos.Util.Wlog (logError, logInfo, modifyLoggerName,
-                     usingLoggerName)
+import           Pos.Util.Wlog (logInfo, modifyLoggerName, usingLoggerName)
 import           Pos.Web (serveDocImpl, serveImpl)
 import qualified Pos.Web.Server
 
+import           Cardano.Wallet.Kernel.DB.AcidState (DB)
 import qualified Cardano.Wallet.Kernel.Diffusion as Kernel
 import qualified Cardano.Wallet.Kernel.Mode as Kernel
+import           Cardano.Wallet.Kernel.NodeStateAdaptor (NodeStateAdaptor)
 import qualified Cardano.Wallet.Server as Server
 import           Cardano.Wallet.Server.Plugins.AcidState
                      (createAndArchiveCheckpoints)
+import           Cardano.Wallet.Server.Plugins.SoftwareUpdates
+                     (softwareUpdatesWatchdog)
 import qualified Cardano.Wallet.WalletLayer.Kernel as WalletLayer.Kernel
 import qualified Data.ByteString.Char8 as BS8
 import qualified Servant
@@ -158,8 +161,10 @@ acidStateSnapshots dbRef params dbMode = pure $ \_diffusion -> do
             (walletAcidInterval opts)
             dbMode
 
--- | A @Plugin@ to notify frontend via websockets.
-updateNotifier :: Plugin Kernel.WalletMode
-updateNotifier = [
-    \_diffusion -> logError "Not Implemented: updateNotifier [CBR-374]"
-    ]
+-- | A @Plugin@ to notify the model about the available software updates.
+updateNotifier :: AcidState DB
+               -> NodeStateAdaptor IO
+               -> Plugin Kernel.WalletMode
+updateNotifier dbRef adaptor = pure $ \_diffusion -> do
+    modifyLoggerName (const "update-notifier-plugin") $
+        softwareUpdatesWatchdog dbRef adaptor

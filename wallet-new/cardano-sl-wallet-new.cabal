@@ -136,6 +136,7 @@ library
                        Cardano.Wallet.Server.CLI
                        Cardano.Wallet.Server.Plugins
                        Cardano.Wallet.Server.Plugins.AcidState
+                       Cardano.Wallet.Server.Plugins.SoftwareUpdates
                        Cardano.Wallet.Server.LegacyPlugins
                        Cardano.Wallet.TypeLits
                        Cardano.Wallet.Types.UtxoStatistics

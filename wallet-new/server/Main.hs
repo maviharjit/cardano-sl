@@ -168,24 +168,27 @@ actionWithWallet coreConfig txpConfig sscParams nodeParams ntpConfig params =
     plugins :: (PassiveWalletLayer IO, PassiveWallet)
             -> Kernel.DatabaseMode
             -> Plugins.Plugin Kernel.Mode.WalletMode
-    plugins w dbMode = mconcat
-        -- The actual wallet backend server.
-        [ Plugins.apiServer pm params w
+    plugins w dbMode =
+        let dbRef   = view Kernel.Internal.wallets (snd w)
+            adaptor = view Kernel.Internal.walletNode (snd w)
+            in mconcat
+               -- The actual wallet backend server.
+               [ Plugins.apiServer pm params w
 
-        -- The corresponding wallet documention, served as a different
-        -- server which doesn't require client x509 certificates to
-        -- connect, but still serves the doc through TLS
-        , Plugins.docServer params
+               -- The corresponding wallet documention, served as a different
+               -- server which doesn't require client x509 certificates to
+               -- connect, but still serves the doc through TLS
+               , Plugins.docServer params
 
-        -- The monitoring API for the Core node.
-        , Plugins.monitoringServer params
+               -- The monitoring API for the Core node.
+               , Plugins.monitoringServer params
 
-        -- Periodically compact & snapshot the acid-state database.
-        , Plugins.acidStateSnapshots (view Kernel.Internal.wallets (snd w)) params dbMode
+               -- Periodically compact & snapshot the acid-state database.
+               , Plugins.acidStateSnapshots dbRef params dbMode
 
-        -- | A @Plugin@ to notify frontend via websockets.
-        , Plugins.updateNotifier
-        ]
+               -- | A @Plugin@ to notify model about new software updates
+               , Plugins.updateNotifier dbRef adaptor
+               ]
 
     -- Extract the logger name from node parameters
     --
